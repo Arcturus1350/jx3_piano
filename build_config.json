@@ -1,0 +1,27 @@
+{
+    "app_info": {
+        "name": "剑网三自动演奏工具",
+        "version": "2.0",
+        "description": "基于MIDI文件的剑网三自动演奏工具",
+        "author": "66maer",
+        "main_script": "gui.py"
+    },
+    "build_settings": {
+        "icon": "icon.ico",
+        "console": false,
+        "onefile": true,
+        "uac_admin": true,
+        "upx": true,
+        "clean": true
+    },
+    "include_files": [
+        "dd.54900.dll"
+    ],
+    "hidden_imports": [
+        "mido",
+        "PyQt5.sip"
+    ],
+    "exclude_modules": [],
+    "output_dir": "release",
+    "output_name": "剑网三自动演奏工具.exe"
+}
