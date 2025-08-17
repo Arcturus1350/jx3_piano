@@ -31,6 +31,8 @@ from PyQt5.QtWidgets import (
     QToolBar,
     QAction,
     QGroupBox,
+    QComboBox,
+    QSlider,
 )
 from PyQt5.QtCore import (
     Qt,
@@ -74,9 +76,11 @@ class BatchConversionWorker(QThread):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool, str)
 
-    def __init__(self, file_paths):
+    def __init__(self, file_paths, speed_multiplier=1.0, octave_transpose=0):
         super().__init__()
         self.file_paths = file_paths
+        self.speed_multiplier = speed_multiplier
+        self.octave_transpose = octave_transpose
 
     def run(self):
         try:
@@ -145,6 +149,8 @@ class BatchConversionWorker(QThread):
                         target_path,
                         track_filter=track_filter,
                         transpose=transpose,
+                        speed_multiplier=self.speed_multiplier,
+                        octave_transpose=self.octave_transpose,
                     )
 
                     if not result.get("success"):
@@ -192,9 +198,10 @@ class PlayThread(QThread):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool)  # True=正常完成, False=被中断
 
-    def __init__(self, json_file_path):
+    def __init__(self, json_file_path, speed_multiplier=1.0):
         super().__init__()
         self.json_file_path = json_file_path
+        self.speed_multiplier = speed_multiplier
         self.player = None
         self.should_stop = False
 
@@ -203,8 +210,8 @@ class PlayThread(QThread):
             # 导入播放器模块
             from player import JX3Player
 
-            # 创建播放器实例，设置日志回调
-            self.player = JX3Player(log_callback=self.log_signal.emit)
+            # 创建播放器实例，设置日志回调和倍速
+            self.player = JX3Player(log_callback=self.log_signal.emit, speed_multiplier=self.speed_multiplier)
 
             # 开始播放
             success = self.player.play_from_json(self.json_file_path)
@@ -439,6 +446,45 @@ class MidiConverterGUI(QMainWindow):
                 background: #3498DB;
             }
             
+            QComboBox {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #34495E, stop:1 #2C3E50);
+                border: 2px solid #3498DB;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-size: 12px;
+                color: #ECF0F1;
+                min-width: 120px;
+            }
+            
+            QComboBox:hover {
+                border: 2px solid #5DADE2;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #3498DB, stop:1 #34495E);
+            }
+            
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            
+            QComboBox::down-arrow {
+                image: none;
+                border: 2px solid #ECF0F1;
+                width: 6px;
+                height: 6px;
+                border-top: none;
+                border-left: none;
+                margin-right: 8px;
+            }
+            
+            QComboBox QAbstractItemView {
+                background-color: #2C3E50;
+                border: 2px solid #3498DB;
+                color: #ECF0F1;
+                selection-background-color: #3498DB;
+            }
+            
         """
         )
 
@@ -469,6 +515,40 @@ class MidiConverterGUI(QMainWindow):
         left_layout.addWidget(control_group)
 
         control_layout = QVBoxLayout(control_group)
+        
+        # 播放设置组
+        settings_group = QGroupBox("⚙️ 播放设置")
+        control_layout.addWidget(settings_group)
+        
+        settings_layout = QVBoxLayout(settings_group)
+        
+        # 速度控制
+        speed_row = QHBoxLayout()
+        speed_label = QLabel("🚀 播放速度:")
+        speed_row.addWidget(speed_label)
+        
+        self.speed_combo = QComboBox()
+        self.speed_combo.addItems([
+            "1.0x (正常)", 
+            "1.25x (1.25倍速)", 
+            "1.5x (1.5倍速)", 
+            "1.75x (1.75倍速)", 
+            "2.0x (2倍速)"
+        ])
+        self.speed_combo.setCurrentIndex(0)
+        speed_row.addWidget(self.speed_combo)
+        settings_layout.addLayout(speed_row)
+        
+        # 八度变调控制
+        octave_row = QHBoxLayout()
+        octave_label = QLabel("🎼 八度变调:")
+        octave_row.addWidget(octave_label)
+        
+        self.octave_combo = QComboBox()
+        self.octave_combo.addItems(["-8度 (低八度)", "0度 (不变调)", "+8度 (高八度)"])
+        self.octave_combo.setCurrentIndex(1)  # 默认不变调
+        octave_row.addWidget(self.octave_combo)
+        settings_layout.addLayout(octave_row)
 
         # 按钮行1
         btn_row1 = QHBoxLayout()
@@ -550,6 +630,16 @@ class MidiConverterGUI(QMainWindow):
         # 设置分割器比例
         splitter.setSizes([350, 650])
 
+    def get_speed_multiplier(self) -> float:
+        """获取当前选择的播放速度倍数"""
+        speed_map = {0: 1.0, 1: 1.25, 2: 1.5, 3: 1.75, 4: 2.0}
+        return speed_map.get(self.speed_combo.currentIndex(), 1.0)
+    
+    def get_octave_transpose(self) -> int:
+        """获取当前选择的八度变调"""
+        octave_map = {0: -1, 1: 0, 2: 1}  # -8度, 不变, +8度
+        return octave_map.get(self.octave_combo.currentIndex(), 0)
+
     def log(self, message: str):
         """添加日志信息"""
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -591,19 +681,32 @@ class MidiConverterGUI(QMainWindow):
 
         if file_paths:
             try:
+                # 获取当前设置
+                speed_multiplier = self.get_speed_multiplier()
+                octave_transpose = self.get_octave_transpose()
+                
                 self.log(f"📁 准备导入 {len(file_paths)} 个文件...")
+                if speed_multiplier != 1.0:
+                    self.log(f"⚡ 播放速度: {speed_multiplier}倍")
+                if octave_transpose != 0:
+                    octave_desc = f"+{octave_transpose}" if octave_transpose > 0 else str(octave_transpose)
+                    self.log(f"🎼 八度变调: {octave_desc}度")
 
                 # 开始批量转换
-                self.batch_conversion_worker = BatchConversionWorker(file_paths)
+                self.batch_conversion_worker = BatchConversionWorker(
+                    file_paths, speed_multiplier, octave_transpose
+                )
                 self.batch_conversion_worker.log_signal.connect(self.log)
                 self.batch_conversion_worker.finished_signal.connect(
                     self.on_batch_conversion_finished
                 )
                 self.batch_conversion_worker.start()
 
-                # 禁用导入按钮
+                # 禁用导入按钮和设置控件
                 self.import_btn.setEnabled(False)
                 self.import_btn.setText("🔄 批量转换中...")
+                self.speed_combo.setEnabled(False)
+                self.octave_combo.setEnabled(False)
 
             except Exception as e:
                 self.log(f"❌ 导入失败: {str(e)}")
@@ -611,9 +714,11 @@ class MidiConverterGUI(QMainWindow):
 
     def on_batch_conversion_finished(self, success: bool, result: str):
         """批量转换完成回调"""
-        # 恢复导入按钮
+        # 恢复导入按钮和设置控件
         self.import_btn.setEnabled(True)
         self.import_btn.setText("📁 导入MIDI")
+        self.speed_combo.setEnabled(True)
+        self.octave_combo.setEnabled(True)
 
         if success:
             self.refresh_play_list()
@@ -691,6 +796,14 @@ class MidiConverterGUI(QMainWindow):
                 self.log(f"  🎼 音轨数量: {data['statistics']['total_tracks']}")
                 self.log(f"  ⏱️ 总时长: {data['statistics']['total_duration']:.2f}秒")
                 self.log(f"  🎵 移调: {data['transpose']}半音")
+                
+                # 显示新的播放设置
+                if 'speed_multiplier' in data and data['speed_multiplier'] != 1.0:
+                    self.log(f"  ⚡ 播放速度: {data['speed_multiplier']}倍")
+                if 'octave_transpose' in data and data['octave_transpose'] != 0:
+                    octave_desc = f"+{data['octave_transpose']}" if data['octave_transpose'] > 0 else str(data['octave_transpose'])
+                    self.log(f"  🎼 八度变调: {octave_desc}度")
+                
                 self.log(f"  🎹 处理音轨: {data['processed_tracks']}")
                 self.log(f"  🔢 音符数量: {data['statistics']['note_count']}")
                 self.log(f"  ⚙️ 操作数量: {data['statistics']['operation_count']}")
@@ -722,11 +835,16 @@ class MidiConverterGUI(QMainWindow):
             json_file_path = current_item.data(Qt.UserRole)
             filename = os.path.basename(json_file_path)
 
+            # 获取当前倍速设置
+            current_speed = self.get_speed_multiplier()
+            
             self.log("")
             self.log(f"▶️ 开始播放: {filename}")
+            if current_speed != 1.0:
+                self.log(f"⚡ 播放倍速: {current_speed}x")
 
-            # 使用新的播放线程
-            self.play_thread = PlayThread(json_file_path)
+            # 使用新的播放线程，传递倍速参数
+            self.play_thread = PlayThread(json_file_path, current_speed)
             self.play_thread.log_signal.connect(self.log)
             self.play_thread.finished_signal.connect(self.on_play_finished)
             self.play_thread.start()

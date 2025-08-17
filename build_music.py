@@ -412,13 +412,23 @@ class MidiToKeysConverter:
         track_filter: List[int] = None,
         channel_filter: List[int] = None,
         transpose: int = 0,
+        speed_multiplier: float = 1.0,
+        octave_transpose: int = 0,
     ) -> List:
         """
         将MIDI文件转换为播放数据格式
+        
+        Args:
+            speed_multiplier: 速度倍数（1.0=正常, 2.0=2倍速, 0.5=半速）
+            octave_transpose: 八度变调（1=+8度, -1=-8度, 0=不变调）
+        
         返回格式: [key1, key2, ..., delay, key1, key2, ..., delay, ...]
         """
+        # 计算总变调量（半音变调 + 八度变调）
+        total_transpose = transpose + (octave_transpose * 12)
+        
         events = self.convert_midi_file(
-            midi_file_path, track_filter, channel_filter, transpose
+            midi_file_path, track_filter, channel_filter, total_transpose
         )
 
         if not events:
@@ -441,7 +451,9 @@ class MidiToKeysConverter:
             # 添加延迟（如果需要）
             delay = timestamp - last_time
             if delay > 0 and last_time > 0:  # 第一个事件前不需要延迟
-                playback_data.append(round(delay, 3))
+                # 应用倍速：倍速越高，延迟越短
+                adjusted_delay = delay / speed_multiplier
+                playback_data.append(round(adjusted_delay, 3))
 
             # 添加该时间点的所有按键
             playback_data.extend(grouped_events[timestamp])
@@ -715,6 +727,8 @@ class MidiToKeysConverter:
         track_filter: List[int] = None,
         channel_filter: List[int] = None,
         transpose: int = 0,
+        speed_multiplier: float = 1.0,
+        octave_transpose: int = 0,
     ) -> Dict[str, Any]:
         """
         生成完整的播放数据文件（包含所有信息）
@@ -725,6 +739,8 @@ class MidiToKeysConverter:
             track_filter: 音轨过滤器
             channel_filter: 通道过滤器
             transpose: 移调半音数
+            speed_multiplier: 播放速度倍数（1.0=正常速度）
+            octave_transpose: 八度变调（1=+8度, -1=-8度）
 
         Returns:
             Dict: 包含文件路径和处理结果的字典
@@ -736,7 +752,8 @@ class MidiToKeysConverter:
 
         # 转换为播放数据
         playback_data = self.convert_to_playback_data(
-            midi_file_path, track_filter, channel_filter, transpose
+            midi_file_path, track_filter, channel_filter, transpose, 
+            speed_multiplier, octave_transpose
         )
 
         if not playback_data:
@@ -761,6 +778,8 @@ class MidiToKeysConverter:
             "generation_time": datetime.now().isoformat(),
             # 处理参数
             "transpose": transpose,
+            "speed_multiplier": speed_multiplier,
+            "octave_transpose": octave_transpose,
             "processed_tracks": track_filter or [],
             "processed_channels": channel_filter or [],
             # MIDI文件分析信息
@@ -893,7 +912,8 @@ class MidiToKeysConverter:
         return summary
 
     def convert_midi(
-        self, midi_file_path: str, track_filter: List[int] = None, transpose: int = None
+        self, midi_file_path: str, track_filter: List[int] = None, transpose: int = None,
+        speed_multiplier: float = 1.0, octave_transpose: int = 0
     ) -> Dict[str, Any]:
         """
         完整的MIDI转换流程（修改为返回结果信息）
@@ -950,12 +970,19 @@ class MidiToKeysConverter:
                 self._log(f"📁 生成文件: {os.path.basename(output_file)}")
                 self._log(f"🎼 处理音轨: {track_filter}")
                 self._log(f"🎵 移调: {transpose}半音")
+                if speed_multiplier != 1.0:
+                    self._log(f"⚡ 播放速度: {speed_multiplier}倍")
+                if octave_transpose != 0:
+                    octave_desc = f"+{octave_transpose}" if octave_transpose > 0 else str(octave_transpose)
+                    self._log(f"🎼 八度变调: {octave_desc}度")
 
                 return {
                     "success": True,
                     "output_file": output_file,
                     "track_filter": track_filter,
                     "transpose": transpose,
+                    "speed_multiplier": speed_multiplier,
+                    "octave_transpose": octave_transpose,
                     "summary": summary,
                     "analysis": analysis,
                 }
@@ -978,6 +1005,8 @@ def build_music(
     midi_file_path: str,
     track_nums: List[int] = None,
     transpose: int = None,
+    speed_multiplier: float = 1.0,
+    octave_transpose: int = 0,
     log_callback=None,
 ) -> Optional[str]:
     """
@@ -987,6 +1016,8 @@ def build_music(
     midi_file_path: MIDI文件路径
     track_nums: 要处理的音轨编号列表，None为自动选择
     transpose: 移调半音数，None为自动选择
+    speed_multiplier: 播放速度倍数（1.0=正常, 1.25=1.25倍速, 1.5=1.5倍速, 1.75=1.75倍速, 2.0=2倍速）
+    octave_transpose: 八度变调（1=+8度, -1=-8度, 0=不变调）
     log_callback: 日志回调函数（用于GUI）
 
     返回:
@@ -994,7 +1025,8 @@ def build_music(
     """
     converter = MidiToKeysConverter(log_callback)
     ensure_directories_exist()
-    result = converter.convert_midi(midi_file_path, track_nums, transpose)
+    result = converter.convert_midi(midi_file_path, track_nums, transpose, 
+                                   speed_multiplier, octave_transpose)
 
     if result["success"]:
         return result["output_file"]

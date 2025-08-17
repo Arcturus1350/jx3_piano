@@ -14,17 +14,19 @@ from typing import List, Optional, Callable
 class JX3Player:
     """剑网三自动演奏播放器"""
 
-    def __init__(self, log_callback: Optional[Callable] = None):
+    def __init__(self, log_callback: Optional[Callable] = None, speed_multiplier: float = 1.0):
         """
         初始化播放器
 
         Args:
             log_callback: 日志回调函数，用于向GUI发送日志信息
+            speed_multiplier: 播放速度倍数（用于实时调整播放速度）
         """
         self.log_callback = log_callback
         self.should_stop = False
         self.dd = None
         self.keyboard = None
+        self.speed_multiplier = speed_multiplier  # 播放时的倍速调整
 
         # 初始化DD驱动
         self._init_dd_driver()
@@ -205,8 +207,11 @@ class JX3Player:
                 # 延迟操作
                 if item > 0:
                     delay_count += 1
+                    # 应用实时倍速调整：倍速越高，延迟越短
+                    adjusted_delay = float(item) / self.speed_multiplier
+                    
                     # 使用小步长延迟，以便响应停止信号
-                    remaining_delay = float(item)
+                    remaining_delay = adjusted_delay
                     while remaining_delay > 0 and not self.is_stop_requested():
                         step = min(0.01, remaining_delay)  # 最多10ms一步
                         time.sleep(step)
@@ -267,11 +272,24 @@ class JX3Player:
             # 显示文件信息
             filename = data.get("filename", "未知")
             transpose = data.get("transpose", 0)
+            file_speed = data.get("speed_multiplier", 1.0)  # 文件生成时的倍速
             stats = data.get("statistics", {})
 
             self._log(f"🎵 曲目: {filename}")
             if transpose != 0:
-                self._log(f"� 移调: {transpose}半音")
+                self._log(f"🎵 移调: {transpose}半音")
+            
+            # 显示速度信息
+            if self.speed_multiplier != 1.0:
+                self._log(f"⚡ 播放倍速: {self.speed_multiplier}x")
+            if file_speed != 1.0:
+                self._log(f"📄 文件倍速: {file_speed}x") 
+            
+            # 计算实际倍速效果
+            effective_speed = self.speed_multiplier * file_speed
+            if effective_speed != 1.0:
+                self._log(f"🎯 实际倍速: {effective_speed}x")
+                
             self._log(
                 f"📊 统计: {stats.get('operation_count', 0)}个操作, {stats.get('key_count', 0)}个按键, {stats.get('delay_count', 0)}个延迟"
             )
