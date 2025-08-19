@@ -244,9 +244,59 @@ class MidiToKeysConverter:
     def analyze_midi_file(self, midi_file_path: str) -> dict:
         """分析MIDI文件的详细信息，用于调试"""
         try:
+            # 首先检查文件是否存在
+            if not os.path.exists(midi_file_path):
+                return {"error": "文件不存在"}
+            
+            # 检查文件大小
+            file_size = os.path.getsize(midi_file_path)
+            if file_size == 0:
+                return {"error": "文件为空"}
+            
+            # 检查文件是否为MIDI格式（基本头部检查）
+            with open(midi_file_path, 'rb') as f:
+                header = f.read(4)
+                if header != b'MThd':
+                    return {"error": "文件格式错误: 不是标准MIDI文件（缺少MThd头部标识）"}
+            
+            # 尝试读取MIDI文件
             mid = mido.MidiFile(midi_file_path)
+            
         except Exception as e:
-            return {"error": f"无法读取MIDI文件: {e}"}
+            error_msg = str(e)
+            
+            # 提供更友好的错误信息
+            if "data byte must be in range 0..127" in error_msg:
+                return {
+                    "error": "MIDI文件格式错误: 包含非法数据字节（超出0-127范围）",
+                    "detailed_error": error_msg,
+                    "suggestions": [
+                        "1. 检查文件是否损坏，尝试重新下载",
+                        "2. 使用MIDI编辑软件（如MuseScore）重新导出为标准MIDI格式",
+                        "3. 确认文件确实是MIDI格式而非其他音频格式",
+                        "4. 尝试使用其他MIDI文件测试工具是否正常工作"
+                    ]
+                }
+            elif "could not read" in error_msg.lower():
+                return {
+                    "error": "无法读取MIDI文件: 文件可能损坏或格式不正确",
+                    "detailed_error": error_msg,
+                    "suggestions": [
+                        "1. 确认文件完整性（重新下载或复制）",
+                        "2. 检查文件权限是否允许读取",
+                        "3. 尝试用其他MIDI播放器测试文件"
+                    ]
+                }
+            else:
+                return {
+                    "error": f"读取MIDI文件时发生未知错误: {error_msg}",
+                    "detailed_error": error_msg,
+                    "suggestions": [
+                        "1. 检查文件是否为有效的MIDI格式",
+                        "2. 尝试使用标准MIDI编辑器打开文件",
+                        "3. 如果问题持续，请尝试其他MIDI文件"
+                    ]
+                }
 
         analysis = {
             "文件信息": {
@@ -305,33 +355,130 @@ class MidiToKeysConverter:
 
         return analysis
 
-    def find_best_transpose(self, midi_file_path: str) -> int:
-        """找到最佳的移调半音数，使更多音符能被映射"""
+    def analyze_track_coverage(self, midi_file_path: str, track_num: int = 0, transpose: int = 0) -> dict:
+        """分析单个音轨的音符覆盖率"""
+        try:
+            mid = mido.MidiFile(midi_file_path)
+        except Exception as e:
+            return {"error": f"无法读取MIDI文件: {e}"}
+        
+        if track_num >= len(mid.tracks):
+            return {"error": f"音轨{track_num}不存在"}
+        
+        track = mid.tracks[track_num]
+        track_notes = defaultdict(int)
+        total_notes = 0
+        mapped_notes = 0
+        
+        # 收集音轨中的音符
+        for msg in track:
+            if msg.type == "note_on" and msg.velocity > 0:
+                track_notes[msg.note] += 1
+                total_notes += 1
+        
+        # 计算覆盖率
+        temp_state = {"sharp": False, "flat": False}
+        for note, count in track_notes.items():
+            transposed_note = self.transpose_note(note, transpose)
+            key_sequence, _ = self.midi_note_to_key_sequence(transposed_note, temp_state)
+            if key_sequence:
+                mapped_notes += count
+        
+        coverage_rate = (mapped_notes / total_notes * 100) if total_notes > 0 else 0
+        
+        return {
+            "track_num": track_num,
+            "total_notes": total_notes,
+            "mapped_notes": mapped_notes,
+            "coverage_rate": coverage_rate,
+            "note_distribution": dict(track_notes)
+        }
+    
+    def find_best_transpose_smart(self, midi_file_path: str, track_filter: List[int] = None) -> dict:
+        """智能变调：优先保证主旋律不变调"""
         analysis = self.analyze_midi_file(midi_file_path)
         if "error" in analysis:
-            return 0
-
-        note_counts = analysis["音符统计"]
-        best_transpose = 0
-        best_mapped_count = 0
-
-        # 尝试±24半音的移调（±2个八度）
+            return {"transpose": 0, "reason": "文件分析失败", "details": analysis}
+        
+        # 默认使用前2个音轨
+        if track_filter is None:
+            track_filter = [0, 1]
+        
+        # 确保音轨存在
+        available_tracks = len(analysis["音轨详情"])
+        track_filter = [t for t in track_filter if t < available_tracks]
+        
+        if not track_filter:
+            return {"transpose": 0, "reason": "没有可用的音轨", "details": {}}
+        
+        # 分析每个音轨在不同变调下的覆盖率
+        track_analysis = {}
+        
+        # 首先分析主旋律（第一个音轨）
+        main_track = track_filter[0]
+        main_track_coverage = {}
+        
+        # 尝试不同的变调值
         for transpose in range(-24, 25):
-            mapped_count = 0
-            temp_state = {"sharp": False, "flat": False}
-            for note, count in note_counts.items():
-                transposed_note = self.transpose_note(note, transpose)
-                key_sequence, _ = self.midi_note_to_key_sequence(
-                    transposed_note, temp_state
-                )
-                if key_sequence:
-                    mapped_count += count
-
-            if mapped_count > best_mapped_count:
-                best_mapped_count = mapped_count
+            coverage = self.analyze_track_coverage(midi_file_path, main_track, transpose)
+            if "error" not in coverage:
+                main_track_coverage[transpose] = coverage["coverage_rate"]
+        
+        # 检查主旋律在不变调时的覆盖率
+        no_transpose_coverage = main_track_coverage.get(0, 0)
+        
+        # 如果主旋律不变调时覆盖率足够好（80%以上），则不变调
+        if no_transpose_coverage >= 80.0:
+            # 详细分析所有音轨在不变调时的情况
+            details = {}
+            for track_num in track_filter:
+                coverage = self.analyze_track_coverage(midi_file_path, track_num, 0)
+                if "error" not in coverage:
+                    details[f"track_{track_num}"] = coverage
+            
+            return {
+                "transpose": 0,
+                "reason": f"主旋律(音轨{main_track})不变调覆盖率已达{no_transpose_coverage:.1f}%，保持不变调",
+                "main_track_coverage": no_transpose_coverage,
+                "details": details
+            }
+        
+        # 如果主旋律覆盖率不够，寻找最佳的整体变调
+        best_transpose = 0
+        best_overall_score = 0
+        
+        for transpose in range(-24, 25):
+            overall_score = 0
+            track_details = {}
+            
+            for track_num in track_filter:
+                coverage = self.analyze_track_coverage(midi_file_path, track_num, transpose)
+                if "error" not in coverage:
+                    # 主旋律权重更高
+                    weight = 2.0 if track_num == main_track else 1.0
+                    overall_score += coverage["coverage_rate"] * weight
+                    track_details[f"track_{track_num}"] = coverage
+            
+            if overall_score > best_overall_score:
+                best_overall_score = overall_score
                 best_transpose = transpose
-
-        return best_transpose
+                best_details = track_details
+        
+        # 再次检查最佳变调下主旋律的覆盖率
+        main_coverage_after = main_track_coverage.get(best_transpose, 0)
+        
+        return {
+            "transpose": best_transpose,
+            "reason": f"主旋律需要变调优化：{no_transpose_coverage:.1f}% → {main_coverage_after:.1f}%",
+            "main_track_coverage": main_coverage_after,
+            "overall_score": best_overall_score,
+            "details": best_details
+        }
+    
+    def find_best_transpose(self, midi_file_path: str) -> int:
+        """找到最佳的移调半音数，使更多音符能被映射（保留原有接口）"""
+        result = self.find_best_transpose_smart(midi_file_path, [0, 1])
+        return result.get("transpose", 0)
 
     def convert_midi_file(
         self,

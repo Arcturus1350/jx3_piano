@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
     QGroupBox,
     QComboBox,
     QSlider,
+    QTabWidget,
 )
 from PyQt5.QtCore import (
     Qt,
@@ -65,9 +66,66 @@ try:
         get_midi_dir_path,
         get_play_code_dir_path,
     )
+    from midi_file_helper import MidiFileHelper
+    from txt_score_parser import TxtScoreParser
 except ImportError:
     print("错误: 无法导入主程序模块，请确保主程序文件在同一目录下")
     sys.exit(1)
+
+
+class TxtConversionWorker(QThread):
+    """TXT乐谱转换工作线程"""
+
+    log_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(bool, str)
+
+    def __init__(self, file_path: str):
+        super().__init__()
+        self.file_path = file_path
+
+    def run(self):
+        try:
+            self.log_signal.emit(f"🎵 开始解析TXT乐谱: {os.path.basename(self.file_path)}")
+            
+            parser = TxtScoreParser()
+            with open(self.file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            result = parser.parse_content(content)
+            
+            if result["success"]:
+                # 生成输出文件名
+                basename = os.path.splitext(os.path.basename(self.file_path))[0]
+                output_path = os.path.join(get_play_code_dir_path(), f"{basename}.json")
+                
+                # 设置实际文件名
+                result["output_data"]["filename"] = basename
+                
+                # 保存JSON文件
+                if parser.save_to_json(result["output_data"], output_path):
+                    stats = result.get("statistics", {})
+                    self.log_signal.emit(f"✅ 转换成功!")
+                    self.log_signal.emit(f"📊 BPM: {stats.get('bpm', 0)}")
+                    self.log_signal.emit(f"🎵 节拍: {stats.get('time_signature', '')}")
+                    self.log_signal.emit(f"📏 小节数: {stats.get('total_measures', 0)}")
+                    self.log_signal.emit(f"🎼 音符数: {stats.get('total_notes', 0)}")
+                    self.log_signal.emit(f"⏱️ 演奏时长: {stats.get('duration_seconds', 0):.1f}秒")
+                    self.log_signal.emit(f"🎹 按键次数: {stats.get('total_key_presses', 0)}")
+                    self.log_signal.emit(f"💾 输出文件: {output_path}")
+                    
+                    self.finished_signal.emit(True, output_path)
+                else:
+                    self.log_signal.emit("❌ 保存文件失败")
+                    self.finished_signal.emit(False, "")
+            else:
+                self.log_signal.emit("❌ 解析失败:")
+                for error in result.get("detailed_errors", []):
+                    self.log_signal.emit(f"   {error}")
+                self.finished_signal.emit(False, "")
+                
+        except Exception as e:
+            self.log_signal.emit(f"❌ 转换过程出错: {str(e)}")
+            self.finished_signal.emit(False, "")
 
 
 class BatchConversionWorker(QThread):
@@ -125,16 +183,75 @@ class BatchConversionWorker(QThread):
                     # 分析文件
                     analysis = converter.analyze_midi_file(target_path)
                     if "error" in analysis:
+                        # 显示详细错误信息
                         self.log_signal.emit(
                             f"❌ [{i}/{total_files}] {filename} 分析失败: {analysis['error']}"
                         )
+                        
+                        # 如果有详细错误，也显示
+                        if "detailed_error" in analysis:
+                            self.log_signal.emit(f"   🔍 详细错误: {analysis['detailed_error']}")
+                        
+                        # 显示解决建议
+                        if "suggestions" in analysis:
+                            self.log_signal.emit("   💡 解决建议:")
+                            for suggestion in analysis["suggestions"]:
+                                self.log_signal.emit(f"      {suggestion}")
+                        
+                        # 使用诊断工具提供更详细的报告
+                        try:
+                            helper = MidiFileHelper()
+                            diagnostic = helper.validate_midi_file(target_path)
+                            
+                            if diagnostic.get("file_info"):
+                                self.log_signal.emit("   📋 文件信息:")
+                                info = diagnostic["file_info"]
+                                if "size" in info:
+                                    self.log_signal.emit(f"      文件大小: {info['size']} 字节")
+                                if "format" in info:
+                                    self.log_signal.emit(f"      MIDI格式: 类型 {info['format']}")
+                                if "tracks" in info:
+                                    self.log_signal.emit(f"      音轨数量: {info['tracks']}")
+                            
+                            # 提供替代方案
+                            alternatives = helper.suggest_alternatives(target_path)
+                            if alternatives:
+                                self.log_signal.emit("   🔄 替代方案:")
+                                for alt in alternatives[:5]:  # 只显示前5条
+                                    if alt.strip():
+                                        self.log_signal.emit(f"      {alt}")
+                        except Exception as diag_error:
+                            self.log_signal.emit(f"   ⚠️ 诊断工具错误: {diag_error}")
+                        
+                        self.log_signal.emit("")  # 空行分隔
                         failed_conversions += 1
                         continue
 
-                    # 找到最佳移调
-                    transpose = converter.find_best_transpose(target_path)
+                    # 智能变调分析
+                    transpose_result = converter.find_best_transpose_smart(target_path, [0, 1])
+                    transpose = transpose_result.get("transpose", 0)
+                    
+                    # 显示变调决策信息
+                    self.log_signal.emit(f"🎯 [{i}/{total_files}] 变调分析: {transpose_result.get('reason', '未知原因')}")
+                    
+                    # 显示音轨覆盖率详情
+                    if "details" in transpose_result:
+                        details = transpose_result["details"]
+                        for track_key, track_info in details.items():
+                            track_num = track_info.get("track_num", "?")
+                            coverage = track_info.get("coverage_rate", 0)
+                            total = track_info.get("total_notes", 0)
+                            mapped = track_info.get("mapped_notes", 0)
+                            self.log_signal.emit(
+                                f"   🎵 音轨{track_num}: {coverage:.1f}% 覆盖率 ({mapped}/{total} 音符)"
+                            )
+                    
+                    if transpose != 0:
+                        self.log_signal.emit(f"📐 [{i}/{total_files}] 最终移调: {transpose}半音")
+                    else:
+                        self.log_signal.emit(f"✅ [{i}/{total_files}] 保持原调")
 
-                    # 选择前2个音轨 TODO: 这里可以根据实际需求调整音轨选择逻辑
+                    # 选择前2个音轨
                     track_filter = [0, 1]
 
                     if not track_filter:
@@ -305,6 +422,26 @@ class MidiConverterGUI(QMainWindow):
             QPushButton#importBtn:hover {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #58D68D, stop:1 #27AE60);
+            }
+            
+            QPushButton#importTxtBtn {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #FF9800, stop:1 #F57F17);
+            }
+            
+            QPushButton#importTxtBtn:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #FFB74D, stop:1 #FF9800);
+            }
+            
+            QPushButton#diagnoseBtn {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #2196F3, stop:1 #1976D2);
+            }
+            
+            QPushButton#diagnoseBtn:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #64B5F6, stop:1 #2196F3);
             }
             
             QPushButton#playBtn {
@@ -553,10 +690,21 @@ class MidiConverterGUI(QMainWindow):
         # 按钮行1
         btn_row1 = QHBoxLayout()
 
-        self.import_btn = QPushButton("📁 导入MIDI")
-        self.import_btn.setObjectName("importBtn")
-        self.import_btn.clicked.connect(self.import_midi_file)
-        btn_row1.addWidget(self.import_btn)
+        self.import_midi_btn = QPushButton("📁 导入MIDI")
+        self.import_midi_btn.setObjectName("importBtn")
+        self.import_midi_btn.clicked.connect(self.import_midi_file)
+        btn_row1.addWidget(self.import_midi_btn)
+
+        self.import_txt_btn = QPushButton("📝 导入TXT乐谱")
+        self.import_txt_btn.setObjectName("importTxtBtn")
+        self.import_txt_btn.clicked.connect(self.import_txt_file)
+        btn_row1.addWidget(self.import_txt_btn)
+
+        self.diagnose_btn = QPushButton("🔍 诊断")
+        self.diagnose_btn.setObjectName("diagnoseBtn")
+        self.diagnose_btn.setToolTip("诊断MIDI文件问题")
+        self.diagnose_btn.clicked.connect(self.diagnose_midi_file)
+        btn_row1.addWidget(self.diagnose_btn)
 
         self.refresh_btn = QPushButton("🔄")
         self.refresh_btn.setObjectName("refreshBtn")
@@ -703,8 +851,9 @@ class MidiConverterGUI(QMainWindow):
                 self.batch_conversion_worker.start()
 
                 # 禁用导入按钮和设置控件
-                self.import_btn.setEnabled(False)
-                self.import_btn.setText("🔄 批量转换中...")
+                self.import_midi_btn.setEnabled(False)
+                self.import_midi_btn.setText("🔄 批量转换中...")
+                self.import_txt_btn.setEnabled(False)
                 self.speed_combo.setEnabled(False)
                 self.octave_combo.setEnabled(False)
 
@@ -712,11 +861,88 @@ class MidiConverterGUI(QMainWindow):
                 self.log(f"❌ 导入失败: {str(e)}")
                 QMessageBox.critical(self, "错误", f"导入文件失败：{str(e)}")
 
+    def diagnose_midi_file(self):
+        """诊断MIDI文件问题"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择要诊断的MIDI文件", "", "MIDI files (*.mid *.midi);;All files (*.*)"
+        )
+
+        if file_path:
+            self.log("=" * 50)
+            self.log("🔍 开始诊断MIDI文件...")
+            self.log(f"📁 文件: {os.path.basename(file_path)}")
+            self.log("")
+
+            try:
+                helper = MidiFileHelper()
+                diagnostic_report = helper.create_diagnostic_report(file_path)
+                
+                # 将报告按行显示在日志中
+                for line in diagnostic_report.split('\n'):
+                    if line.strip():
+                        self.log(line)
+                
+                self.log("")
+                self.log("🔍 诊断完成！")
+                
+            except Exception as e:
+                self.log(f"❌ 诊断过程中发生错误: {str(e)}")
+                self.log("💡 建议:")
+                self.log("   • 检查文件是否存在")
+                self.log("   • 确认文件不在使用中")
+                self.log("   • 尝试使用其他MIDI文件测试")
+
+    def import_txt_file(self):
+        """导入TXT乐谱文件"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择TXT乐谱文件", "", "TXT files (*.txt);;All files (*.*)"
+        )
+
+        if file_path:
+            try:
+                self.log(f"📝 准备导入TXT乐谱: {os.path.basename(file_path)}")
+                
+                # 开始TXT转换
+                self.txt_conversion_worker = TxtConversionWorker(file_path)
+                self.txt_conversion_worker.log_signal.connect(self.log)
+                self.txt_conversion_worker.finished_signal.connect(
+                    self.on_txt_conversion_finished
+                )
+                self.txt_conversion_worker.start()
+
+                # 禁用导入按钮
+                self.import_txt_btn.setEnabled(False)
+                self.import_txt_btn.setText("🔄 解析中...")
+                self.import_midi_btn.setEnabled(False)
+
+            except Exception as e:
+                self.log(f"❌ 导入失败: {str(e)}")
+                QMessageBox.critical(self, "错误", f"导入TXT文件失败：{str(e)}")
+        else:
+            self.log("🚫 未选择文件")
+
+    def on_txt_conversion_finished(self, success: bool, output_path: str):
+        """TXT转换完成回调"""
+        # 重新启用导入按钮
+        self.import_txt_btn.setEnabled(True)
+        self.import_txt_btn.setText("📝 导入TXT乐谱")
+        self.import_midi_btn.setEnabled(True)
+        
+        if success:
+            self.log("🎉 TXT乐谱转换完成!")
+            self.refresh_play_list()
+        else:
+            self.log("❌ TXT乐谱转换失败")
+            QMessageBox.warning(self, "转换失败", "TXT乐谱转换失败，请检查文件格式和语法。")
+        
+        self.log("=" * 50)
+
     def on_batch_conversion_finished(self, success: bool, result: str):
         """批量转换完成回调"""
         # 恢复导入按钮和设置控件
-        self.import_btn.setEnabled(True)
-        self.import_btn.setText("📁 导入MIDI")
+        self.import_midi_btn.setEnabled(True)
+        self.import_midi_btn.setText("📁 导入MIDI")
+        self.import_txt_btn.setEnabled(True)
         self.speed_combo.setEnabled(True)
         self.octave_combo.setEnabled(True)
 
