@@ -6,11 +6,15 @@
 ![GUI](https://img.shields.io/badge/GUI-PyQt5-green.svg)
 ![Game](https://img.shields.io/badge/Game-剑网三-red.svg)
 ![Version](https://img.shields.io/badge/Version-2.0%20增强版-orange.svg)
-![forked_from](https://github.com/66maer/jx3_piano)
+
 
 **原作者**: 66maer
+
 **二遍**: Mirror
+
 未得到原作者许可，不进行开放
+
+[forked_from](https://github.com/66maer/jx3_piano)
 
 ## 🎵 这是什么？
 
