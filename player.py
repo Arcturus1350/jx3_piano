@@ -14,19 +14,21 @@ from typing import List, Optional, Callable
 class JX3Player:
     """剑网三自动演奏播放器"""
 
-    def __init__(self, log_callback: Optional[Callable] = None, speed_multiplier: float = 1.0):
+    def __init__(self, log_callback: Optional[Callable] = None, speed_multiplier: float = 1.0, key_press_duration: float = 0.01):
         """
         初始化播放器
 
         Args:
             log_callback: 日志回调函数，用于向GUI发送日志信息
             speed_multiplier: 播放速度倍数（用于实时调整播放速度）
+            key_press_duration: 按键按压时长（秒），默认10ms
         """
         self.log_callback = log_callback
         self.should_stop = False
         self.dd = None
         self.keyboard = None
         self.speed_multiplier = speed_multiplier  # 播放时的倍速调整
+        self.key_press_duration = key_press_duration  # 按键按压时长
 
         # 初始化DD驱动
         self._init_dd_driver()
@@ -229,9 +231,13 @@ class JX3Player:
                         # 组合按键
                         for key in item:
                             self.dd.key_press(key)
+                            # 按键按压时长
+                            time.sleep(self.key_press_duration)
                     else:
                         # 普通按键
                         self.dd.key_press(item)
+                        # 按键按压时长
+                        time.sleep(self.key_press_duration)
                 except Exception as e:
                     self._log(f"⚠️ 按键 {item} 执行失败: {e}")
 
@@ -289,10 +295,26 @@ class JX3Player:
             effective_speed = self.speed_multiplier * file_speed
             if effective_speed != 1.0:
                 self._log(f"🎯 实际倍速: {effective_speed}x")
+            
+            # 显示按键按压时长
+            press_duration_ms = int(self.key_press_duration * 1000)
+            self._log(f"⌨️ 按键按压时长: {press_duration_ms}ms")
                 
-            self._log(
-                f"📊 统计: {stats.get('operation_count', 0)}个操作, {stats.get('key_count', 0)}个按键, {stats.get('delay_count', 0)}个延迟"
-            )
+            # 安全地显示统计信息
+            try:
+                if stats:
+                    operation_count = stats.get('operation_count', len(playback_data))
+                    key_count = stats.get('key_count', 0)
+                    delay_count = stats.get('delay_count', 0)
+                    self._log(f"📊 统计: {operation_count}个操作, {key_count}个按键, {delay_count}个延迟")
+                else:
+                    # 如果没有统计信息，从播放数据中计算
+                    key_count = sum(1 for item in playback_data if isinstance(item, str))
+                    delay_count = sum(1 for item in playback_data if isinstance(item, (int, float)))
+                    self._log(f"📊 统计: {len(playback_data)}个操作, {key_count}个按键, {delay_count}个延迟")
+            except Exception as e:
+                self._log(f"📊 统计: {len(playback_data)}个操作")
+            
             self._log("")
 
             # 倒计时

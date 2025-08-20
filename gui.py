@@ -315,10 +315,11 @@ class PlayThread(QThread):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool)  # True=正常完成, False=被中断
 
-    def __init__(self, json_file_path, speed_multiplier=1.0):
+    def __init__(self, json_file_path, speed_multiplier=1.0, key_press_duration=0.01):
         super().__init__()
         self.json_file_path = json_file_path
         self.speed_multiplier = speed_multiplier
+        self.key_press_duration = key_press_duration
         self.player = None
         self.should_stop = False
 
@@ -328,7 +329,11 @@ class PlayThread(QThread):
             from player import JX3Player
 
             # 创建播放器实例，设置日志回调和倍速
-            self.player = JX3Player(log_callback=self.log_signal.emit, speed_multiplier=self.speed_multiplier)
+            self.player = JX3Player(
+                log_callback=self.log_signal.emit, 
+                speed_multiplier=self.speed_multiplier,
+                key_press_duration=self.key_press_duration
+            )
 
             # 开始播放
             success = self.player.play_from_json(self.json_file_path)
@@ -376,228 +381,207 @@ class MidiConverterGUI(QMainWindow):
         self.log("💡 请导入MIDI文件开始使用")
 
     def setup_style(self):
-        """设置应用程序样式"""
+        """设置应用程序样式 - 简洁白色主题"""
         self.setStyleSheet(
             """
             QMainWindow {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #2C3E50, stop:1 #34495E);
+                background-color: #FFFFFF;
             }
             
             QWidget {
                 background-color: transparent;
-                color: #ECF0F1;
+                color: #333333;
                 font-family: 'Microsoft YaHei UI', 'Segoe UI', Arial;
-                font-size: 14px;
+                font-size: 13px;
             }
             
             QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #3498DB, stop:1 #2980B9);
+                background-color: #4A90E2;
                 border: none;
-                border-radius: 8px;
+                border-radius: 6px;
                 color: white;
-                font-weight: bold;
-                font-size: 14px;
-                padding: 12px 18px;
-                min-height: 25px;
+                font-weight: 500;
+                font-size: 13px;
+                padding: 10px 16px;
+                min-height: 20px;
             }
             
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #5DADE2, stop:1 #3498DB);
-                transform: translateY(-2px);
+                background-color: #357ABD;
             }
             
             QPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #2980B9, stop:1 #21618C);
+                background-color: #2E5F8A;
             }
             
             QPushButton#importBtn {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #27AE60, stop:1 #229954);
+                background-color: #28A745;
             }
             
             QPushButton#importBtn:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #58D68D, stop:1 #27AE60);
+                background-color: #218838;
             }
             
             QPushButton#importTxtBtn {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #FF9800, stop:1 #F57F17);
+                background-color: #FFC107;
+                color: #333333;
             }
             
             QPushButton#importTxtBtn:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #FFB74D, stop:1 #FF9800);
+                background-color: #E0A800;
             }
             
             QPushButton#diagnoseBtn {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #2196F3, stop:1 #1976D2);
+                background-color: #17A2B8;
             }
             
             QPushButton#diagnoseBtn:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #64B5F6, stop:1 #2196F3);
+                background-color: #138496;
             }
             
             QPushButton#playBtn {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #F39C12, stop:1 #E67E22);
-                min-width: 50px;
-                font-size: 16px;
+                background-color: #28A745;
+                min-width: 60px;
+                font-size: 14px;
                 font-weight: bold;
             }
             
             QPushButton#playBtn:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #F8C471, stop:1 #F39C12);
+                background-color: #218838;
             }
             
             QPushButton#stopBtn {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #E74C3C, stop:1 #C0392B);
+                background-color: #DC3545;
             }
             
             QPushButton#stopBtn:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #F1948A, stop:1 #E74C3C);
+                background-color: #C82333;
             }
             
             QPushButton#refreshBtn {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #8E44AD, stop:1 #7D3C98);
-                min-width: 30px;
-                max-width: 35px;
-                padding: 8px 8px;
+                background-color: #6C757D;
+                min-width: 35px;
+                max-width: 40px;
+                padding: 8px;
                 font-size: 12px;
             }
             
             QPushButton#clearBtn {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #E74C3C, stop:1 #C0392B);
-                font-size: 10px;
-                padding: 5px 10px;
-                min-height: 15px;
+                background-color: #DC3545;
+                font-size: 11px;
+                padding: 6px 12px;
+                min-height: 18px;
             }
             
             QListWidget {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(52, 73, 94, 0.8), stop:1 rgba(44, 62, 80, 0.8));
-                border: 2px solid #34495E;
-                border-radius: 10px;
-                padding: 5px;
-                font-size: 13px;
-                selection-background-color: #3498DB;
+                background-color: #F8F9FA;
+                border: 1px solid #DEE2E6;
+                border-radius: 6px;
+                padding: 8px;
+                font-size: 12px;
+                selection-background-color: #4A90E2;
+                color: #333333;
             }
             
             QListWidget::item {
-                background: rgba(52, 152, 219, 0.1);
-                border: 1px solid rgba(52, 152, 219, 0.3);
-                border-radius: 5px;
+                background-color: #FFFFFF;
+                border: 1px solid #E9ECEF;
+                border-radius: 4px;
                 padding: 8px;
                 margin: 2px;
             }
             
             QListWidget::item:hover {
-                background: rgba(52, 152, 219, 0.3);
-                border: 1px solid rgba(52, 152, 219, 0.6);
+                background-color: #E3F2FD;
+                border: 1px solid #BBDEFB;
             }
             
             QListWidget::item:selected {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #3498DB, stop:1 #2980B9);
-                border: 1px solid #2980B9;
+                background-color: #4A90E2;
+                border: 1px solid #357ABD;
+                color: white;
             }
             
             QTextEdit {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(44, 62, 80, 0.9), stop:1 rgba(52, 73, 94, 0.9));
-                border: 2px solid #34495E;
-                border-radius: 10px;
-                padding: 10px;
+                background-color: #F8F9FA;
+                border: 1px solid #DEE2E6;
+                border-radius: 6px;
+                padding: 12px;
                 font-family: 'Consolas', 'Monaco', monospace;
-                font-size: 13px;
-                color: #ECF0F1;
-                selection-background-color: #3498DB;
+                font-size: 12px;
+                color: #333333;
+                selection-background-color: #4A90E2;
             }
             
             QLabel {
-                color: #ECF0F1;
-                font-weight: bold;
-                font-size: 15px;
+                color: #333333;
+                font-weight: 500;
+                font-size: 13px;
             }
             
             QLabel#creditLabel {
-                color: #7F8C8D;
-                font-size: 9px;
+                color: #6C757D;
+                font-size: 10px;
                 font-weight: normal;
                 font-style: italic;
             }
             
             QGroupBox {
-                border: 2px solid #34495E;
-                border-radius: 10px;
-                margin-top: 10px;
-                padding-top: 10px;
-                font-weight: bold;
-                color: #ECF0F1;
+                border: 1px solid #DEE2E6;
+                border-radius: 6px;
+                margin-top: 8px;
+                padding-top: 8px;
+                font-weight: 500;
+                color: #333333;
+                background-color: #FFFFFF;
             }
             
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 15px;
-                padding: 0 10px 0 10px;
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #3498DB, stop:1 #2980B9);
-                border-radius: 5px;
+                left: 12px;
+                padding: 0 8px 0 8px;
+                background-color: #4A90E2;
+                border-radius: 4px;
                 color: white;
+                font-size: 12px;
             }
             
             QFrame#leftPanel {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(52, 73, 94, 0.7), stop:1 rgba(44, 62, 80, 0.7));
-                border: 2px solid #34495E;
-                border-radius: 15px;
-                margin: 5px;
+                background-color: #FFFFFF;
+                border: 1px solid #DEE2E6;
+                border-radius: 8px;
+                margin: 4px;
             }
             
             QFrame#rightPanel {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(44, 62, 80, 0.7), stop:1 rgba(52, 73, 94, 0.7));
-                border: 2px solid #34495E;
-                border-radius: 15px;
-                margin: 5px;
+                background-color: #FFFFFF;
+                border: 1px solid #DEE2E6;
+                border-radius: 8px;
+                margin: 4px;
             }
             
             QSplitter::handle {
-                background: #34495E;
-                width: 3px;
+                background-color: #DEE2E6;
+                width: 2px;
                 border-radius: 1px;
             }
             
             QSplitter::handle:hover {
-                background: #3498DB;
+                background-color: #4A90E2;
             }
             
             QComboBox {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #34495E, stop:1 #2C3E50);
-                border: 2px solid #3498DB;
-                border-radius: 6px;
+                background-color: #FFFFFF;
+                border: 1px solid #DEE2E6;
+                border-radius: 4px;
                 padding: 6px 12px;
                 font-size: 12px;
-                color: #ECF0F1;
+                color: #333333;
                 min-width: 120px;
             }
             
             QComboBox:hover {
-                border: 2px solid #5DADE2;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #3498DB, stop:1 #34495E);
+                border: 1px solid #4A90E2;
             }
             
             QComboBox::drop-down {
@@ -607,7 +591,7 @@ class MidiConverterGUI(QMainWindow):
             
             QComboBox::down-arrow {
                 image: none;
-                border: 2px solid #ECF0F1;
+                border: 2px solid #6C757D;
                 width: 6px;
                 height: 6px;
                 border-top: none;
@@ -616,52 +600,56 @@ class MidiConverterGUI(QMainWindow):
             }
             
             QComboBox QAbstractItemView {
-                background-color: #2C3E50;
-                border: 2px solid #3498DB;
-                color: #ECF0F1;
-                selection-background-color: #3498DB;
+                background-color: #FFFFFF;
+                border: 1px solid #DEE2E6;
+                color: #333333;
+                selection-background-color: #4A90E2;
             }
             
         """
         )
 
     def setup_ui(self):
-        """设置用户界面"""
+        """设置用户界面 - 简洁白色主题"""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
         # 主布局
         main_layout = QHBoxLayout(central_widget)
-        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(8)
 
         # 创建分割器
         splitter = QSplitter(Qt.Horizontal)
         main_layout.addWidget(splitter)
 
-        # 左侧面板
+        # 左侧控制面板
         left_frame = QFrame()
         left_frame.setObjectName("leftPanel")
-        left_frame.setFixedWidth(350)
+        left_frame.setFixedWidth(320)
         splitter.addWidget(left_frame)
 
         left_layout = QVBoxLayout(left_frame)
-        left_layout.setContentsMargins(15, 15, 15, 15)
+        left_layout.setContentsMargins(12, 12, 12, 12)
+        left_layout.setSpacing(8)
 
-        # 控制按钮组
-        control_group = QGroupBox("🎛️ 控制面板")
-        left_layout.addWidget(control_group)
+        # 标题
+        title_label = QLabel("🎵 剑网三自动演奏工具")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2C3E50; margin-bottom: 8px;")
+        left_layout.addWidget(title_label)
 
-        control_layout = QVBoxLayout(control_group)
-        
-        # 播放设置组
-        settings_group = QGroupBox("⚙️ 播放设置")
-        control_layout.addWidget(settings_group)
-        
+        # 参数设置组
+        settings_group = QGroupBox("⚙️ 播放参数")
+        left_layout.addWidget(settings_group)
+
         settings_layout = QVBoxLayout(settings_group)
+        settings_layout.setSpacing(6)
         
         # 速度控制
         speed_row = QHBoxLayout()
         speed_label = QLabel("🚀 播放速度:")
+        speed_label.setFixedWidth(80)
         speed_row.addWidget(speed_label)
         
         self.speed_combo = QComboBox()
@@ -679,6 +667,7 @@ class MidiConverterGUI(QMainWindow):
         # 八度变调控制
         octave_row = QHBoxLayout()
         octave_label = QLabel("🎼 八度变调:")
+        octave_label.setFixedWidth(80)
         octave_row.addWidget(octave_label)
         
         self.octave_combo = QComboBox()
@@ -686,73 +675,104 @@ class MidiConverterGUI(QMainWindow):
         self.octave_combo.setCurrentIndex(1)  # 默认不变调
         octave_row.addWidget(self.octave_combo)
         settings_layout.addLayout(octave_row)
+        
+        # 按键按压时长控制
+        press_duration_row = QHBoxLayout()
+        press_duration_label = QLabel("⌨️ 按键时长:")
+        press_duration_label.setFixedWidth(80)
+        press_duration_row.addWidget(press_duration_label)
+        
+        self.press_duration_combo = QComboBox()
+        self.press_duration_combo.addItems([
+            "2ms (快速)", 
+            "5ms (标准)", 
+            "10ms (默认)", 
+            "15ms (稍慢)", 
+            "20ms (慢速)"
+        ])
+        self.press_duration_combo.setCurrentIndex(2)  # 默认10ms
+        press_duration_row.addWidget(self.press_duration_combo)
+        settings_layout.addLayout(press_duration_row)
 
-        # 按钮行1
-        btn_row1 = QHBoxLayout()
+        # 操作按钮组
+        action_group = QGroupBox("🎮 操作控制")
+        left_layout.addWidget(action_group)
 
-        self.import_midi_btn = QPushButton("📁 导入MIDI")
+        action_layout = QVBoxLayout(action_group)
+        action_layout.setSpacing(6)
+
+        # 导入按钮行
+        import_row = QHBoxLayout()
+        import_row.setSpacing(4)
+
+        self.import_midi_btn = QPushButton("📁 MIDI")
         self.import_midi_btn.setObjectName("importBtn")
         self.import_midi_btn.clicked.connect(self.import_midi_file)
-        btn_row1.addWidget(self.import_midi_btn)
+        self.import_midi_btn.setToolTip("导入MIDI文件")
+        import_row.addWidget(self.import_midi_btn)
 
-        self.import_txt_btn = QPushButton("📝 导入TXT乐谱")
+        self.import_txt_btn = QPushButton("📝 TXT")
         self.import_txt_btn.setObjectName("importTxtBtn")
         self.import_txt_btn.clicked.connect(self.import_txt_file)
-        btn_row1.addWidget(self.import_txt_btn)
+        self.import_txt_btn.setToolTip("导入TXT乐谱")
+        import_row.addWidget(self.import_txt_btn)
 
         self.diagnose_btn = QPushButton("🔍 诊断")
         self.diagnose_btn.setObjectName("diagnoseBtn")
         self.diagnose_btn.setToolTip("诊断MIDI文件问题")
         self.diagnose_btn.clicked.connect(self.diagnose_midi_file)
-        btn_row1.addWidget(self.diagnose_btn)
+        import_row.addWidget(self.diagnose_btn)
+
+        action_layout.addLayout(import_row)
+
+        # 播放控制行
+        play_row = QHBoxLayout()
+        play_row.setSpacing(4)
+
+        self.play_btn = QPushButton("▶️ 播放")
+        self.play_btn.setObjectName("playBtn")
+        self.play_btn.clicked.connect(self.toggle_play)
+        play_row.addWidget(self.play_btn)
 
         self.refresh_btn = QPushButton("🔄")
         self.refresh_btn.setObjectName("refreshBtn")
         self.refresh_btn.setToolTip("刷新列表")
         self.refresh_btn.clicked.connect(self.refresh_play_list)
-        btn_row1.addWidget(self.refresh_btn)
+        play_row.addWidget(self.refresh_btn)
 
-        control_layout.addLayout(btn_row1)
-
-        # 按钮行2
-        btn_row2 = QHBoxLayout()
-
-        self.play_btn = QPushButton("▶️ 播放")
-        self.play_btn.setObjectName("playBtn")
-        self.play_btn.clicked.connect(self.toggle_play)
-        btn_row2.addWidget(self.play_btn)
-
-        control_layout.addLayout(btn_row2)
-
-        # 添加作者信息
-        credit_label = QLabel("by 66maer")
-        credit_label.setObjectName("creditLabel")
-        credit_label.setAlignment(Qt.AlignCenter)
-        control_layout.addWidget(credit_label)
+        action_layout.addLayout(play_row)
 
         # 播放列表组
         list_group = QGroupBox("🎼 播放列表")
         left_layout.addWidget(list_group)
 
         list_layout = QVBoxLayout(list_group)
+        list_layout.setContentsMargins(4, 4, 4, 4)
 
         self.play_listbox = QListWidget()
         self.play_listbox.itemSelectionChanged.connect(self.on_select_play_file)
         list_layout.addWidget(self.play_listbox)
 
-        # 右侧面板
+        # 作者信息
+        credit_label = QLabel("by 66maer")
+        credit_label.setObjectName("creditLabel")
+        credit_label.setAlignment(Qt.AlignCenter)
+        left_layout.addWidget(credit_label)
+
+        # 右侧日志面板
         right_frame = QFrame()
         right_frame.setObjectName("rightPanel")
         splitter.addWidget(right_frame)
 
         right_layout = QVBoxLayout(right_frame)
-        right_layout.setContentsMargins(15, 15, 15, 15)
+        right_layout.setContentsMargins(12, 12, 12, 12)
 
         # 日志标题和功能按钮
         log_header = QHBoxLayout()
+        log_header.setSpacing(8)
 
         log_label = QLabel("📋 操作日志")
-        log_label.setFont(QFont("Microsoft YaHei UI", 14, QFont.Bold))
+        log_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #2C3E50;")
         log_header.addWidget(log_label)
 
         log_header.addStretch()
@@ -760,11 +780,13 @@ class MidiConverterGUI(QMainWindow):
         self.topmost_btn = QPushButton("📌 置顶")
         self.topmost_btn.setObjectName("clearBtn")
         self.topmost_btn.setCheckable(True)
+        self.topmost_btn.setToolTip("窗口置顶")
         self.topmost_btn.clicked.connect(self.toggle_topmost)
         log_header.addWidget(self.topmost_btn)
 
         self.clear_btn = QPushButton("🗑️ 清空")
         self.clear_btn.setObjectName("clearBtn")
+        self.clear_btn.setToolTip("清空日志")
         self.clear_btn.clicked.connect(self.clear_log)
         log_header.addWidget(self.clear_btn)
 
@@ -776,7 +798,7 @@ class MidiConverterGUI(QMainWindow):
         right_layout.addWidget(self.log_text)
 
         # 设置分割器比例
-        splitter.setSizes([350, 650])
+        splitter.setSizes([320, 680])
 
     def get_speed_multiplier(self) -> float:
         """获取当前选择的播放速度倍数"""
@@ -787,6 +809,11 @@ class MidiConverterGUI(QMainWindow):
         """获取当前选择的八度变调"""
         octave_map = {0: -1, 1: 0, 2: 1}  # -8度, 不变, +8度
         return octave_map.get(self.octave_combo.currentIndex(), 0)
+    
+    def get_key_press_duration(self) -> float:
+        """获取当前选择的按键按压时长（秒）"""
+        duration_map = {0: 0.002, 1: 0.005, 2: 0.01, 3: 0.015, 4: 0.02}  # 2ms, 5ms, 10ms, 15ms, 20ms
+        return duration_map.get(self.press_duration_combo.currentIndex(), 0.01)
 
     def log(self, message: str):
         """添加日志信息"""
@@ -832,6 +859,7 @@ class MidiConverterGUI(QMainWindow):
                 # 获取当前设置
                 speed_multiplier = self.get_speed_multiplier()
                 octave_transpose = self.get_octave_transpose()
+                key_press_duration = self.get_key_press_duration()
                 
                 self.log(f"📁 准备导入 {len(file_paths)} 个文件...")
                 if speed_multiplier != 1.0:
@@ -839,6 +867,8 @@ class MidiConverterGUI(QMainWindow):
                 if octave_transpose != 0:
                     octave_desc = f"+{octave_transpose}" if octave_transpose > 0 else str(octave_transpose)
                     self.log(f"🎼 八度变调: {octave_desc}度")
+                press_duration_ms = int(key_press_duration * 1000)
+                self.log(f"⌨️ 按键按压时长: {press_duration_ms}ms")
 
                 # 开始批量转换
                 self.batch_conversion_worker = BatchConversionWorker(
@@ -900,7 +930,12 @@ class MidiConverterGUI(QMainWindow):
 
         if file_path:
             try:
+                # 获取当前设置
+                key_press_duration = self.get_key_press_duration()
+                press_duration_ms = int(key_press_duration * 1000)
+                
                 self.log(f"📝 准备导入TXT乐谱: {os.path.basename(file_path)}")
+                self.log(f"⌨️ 按键按压时长: {press_duration_ms}ms")
                 
                 # 开始TXT转换
                 self.txt_conversion_worker = TxtConversionWorker(file_path)
@@ -945,6 +980,7 @@ class MidiConverterGUI(QMainWindow):
         self.import_txt_btn.setEnabled(True)
         self.speed_combo.setEnabled(True)
         self.octave_combo.setEnabled(True)
+        self.press_duration_combo.setEnabled(True)
 
         if success:
             self.refresh_play_list()
@@ -1061,16 +1097,19 @@ class MidiConverterGUI(QMainWindow):
             json_file_path = current_item.data(Qt.UserRole)
             filename = os.path.basename(json_file_path)
 
-            # 获取当前倍速设置
+            # 获取当前设置
             current_speed = self.get_speed_multiplier()
+            current_press_duration = self.get_key_press_duration()
             
             self.log("")
             self.log(f"▶️ 开始播放: {filename}")
             if current_speed != 1.0:
                 self.log(f"⚡ 播放倍速: {current_speed}x")
+            press_duration_ms = int(current_press_duration * 1000)
+            self.log(f"⌨️ 按键按压时长: {press_duration_ms}ms")
 
-            # 使用新的播放线程，传递倍速参数
-            self.play_thread = PlayThread(json_file_path, current_speed)
+            # 使用新的播放线程，传递倍速和按键时长参数
+            self.play_thread = PlayThread(json_file_path, current_speed, current_press_duration)
             self.play_thread.log_signal.connect(self.log)
             self.play_thread.finished_signal.connect(self.on_play_finished)
             self.play_thread.start()

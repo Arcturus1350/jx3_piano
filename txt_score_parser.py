@@ -99,10 +99,25 @@ class TxtScoreParser:
     """TXT乐谱解析器"""
     
     def __init__(self):
-        # 音符到游戏按键的映射
+        # 音符到游戏按键的映射（剑网三钢琴键位）
+        # 高音区: 12345 → 12345 (数字键)
+        # 中音区: 1234567 → QWERTYU (字母键)  
+        # 低音区: 1234567 → ASDFGHJ (字母键)
         self.note_to_key = {
+            # 中音区（默认音区）
             1: 'Q', 2: 'W', 3: 'E', 4: 'R', 
             5: 'T', 6: 'Y', 7: 'U'
+        }
+        
+        # 高音区映射
+        self.high_octave_keys = {
+            1: '1', 2: '2', 3: '3', 4: '4', 5: '5'
+        }
+        
+        # 低音区映射
+        self.low_octave_keys = {
+            1: 'A', 2: 'S', 3: 'D', 4: 'F', 
+            5: 'G', 6: 'H', 7: 'J'
         }
         
         # 小键盘对应关系（仅用于提示）
@@ -111,13 +126,7 @@ class TxtScoreParser:
             6: '小键盘6', 7: '小键盘7'
         }
         
-        # 音区偏移映射（以MIDI音符号为单位）
-        self.octave_offset = {
-            '--': -24,  # 下下八度（超低音区）
-            '-': -12,   # 下八度（低音区）
-            '': 0,      # 中音区（标准音区）
-            '+': 12     # 上八度（高音区）
-        }
+        # 音区标记说明（+ 高音区, - 低音区, -- 倍低音区, 无标记 中音区）
         
         # 支持的节拍
         self.supported_beats = ['2/4', '3/4', '4/4']
@@ -569,6 +578,55 @@ class TxtScoreParser:
             is_rest=is_rest
         )
     
+    def _get_note_key(self, note: Note) -> str:
+        """根据音符的音区获取对应的游戏按键"""
+        if note.is_rest:
+            return None
+        
+        pitch = note.pitch
+        octave = note.octave
+        
+        # 根据音区选择键位映射
+        if octave == '+':
+            # 高音区: 12345 → 12345 (数字键)
+            if pitch in self.high_octave_keys:
+                return self.high_octave_keys[pitch]
+            else:
+                # 高音区的6、7无法映射，给出警告
+                self.warnings.append(ParseError(
+                    self.current_line, 0,
+                    f"高音区音符+{pitch}超出游戏音域",
+                    f"+{pitch}"
+                ))
+                return None
+        elif octave == '-':
+            # 低音区: 1234567 → ASDFGHJ (字母键)
+            if pitch in self.low_octave_keys:
+                return self.low_octave_keys[pitch]
+            else:
+                return None
+        elif octave == '--':
+            # 倍低音区: 5→B, 6→N, 7→M (字母键)
+            if pitch == 5:
+                return 'B'
+            elif pitch == 6:
+                return 'N'
+            elif pitch == 7:
+                return 'M'
+            else:
+                self.warnings.append(ParseError(
+                    self.current_line, 0,
+                    f"倍低音区音符--{pitch}超出游戏音域",
+                    f"--{pitch}"
+                ))
+                return None
+        else:
+            # 中音区（默认）: 1234567 → QWERTYU (字母键)
+            if pitch in self.note_to_key:
+                return self.note_to_key[pitch]
+            else:
+                return None
+    
     def _parse_chord(self, token: str) -> Chord:
         """解析和弦"""
         # 检查是否有前置升降号
@@ -914,6 +972,11 @@ class TxtScoreParser:
         # 生成最终的播放数据
         playback_data, total_key_presses, total_duration = self._generate_final_playback(merged_events)
         
+        # 计算统计信息
+        operation_count = len(playback_data)
+        key_count = sum(1 for item in playback_data if isinstance(item, str))
+        delay_count = sum(1 for item in playback_data if isinstance(item, (int, float)))
+        
         # 生成输出文件（兼容播放列表格式）
         output_data = {
             "type": "jx3_piano_complete",
@@ -934,7 +997,15 @@ class TxtScoreParser:
                 "parser_version": "1.0",
                 "track_count": len(track_events)
             },
-            "playback_data": playback_data
+            "playback_data": playback_data,
+            "statistics": {
+                "total_tracks": len(track_events),
+                "total_duration": total_duration,
+                "note_count": self.total_notes,
+                "operation_count": operation_count,
+                "key_count": key_count,
+                "delay_count": delay_count,
+            }
         }
         
         # 输出统计信息
@@ -1042,13 +1113,15 @@ class TxtScoreParser:
         if note.modifier in self.modifier_keys:
             events.append(TimeEvent(start_time, 'modifier_press', self.modifier_keys[note.modifier], track_id))
         
-        # 主音符
-        if note.pitch in self.note_to_key:
-            events.append(TimeEvent(start_time, 'key_press', self.note_to_key[note.pitch], track_id))
+        # 主音符 - 根据音区选择正确的键位映射
+        key = self._get_note_key(note)
+        if key:
+            events.append(TimeEvent(start_time, 'key_press', key, track_id))
         
-        # 修饰符后置
-        if note.modifier in self.modifier_keys:
-            events.append(TimeEvent(start_time + 0.001, 'modifier_release', self.modifier_keys[note.modifier], track_id))
+        # 修饰符后置（不生成release事件，在下一个音符时自动处理）
+        # 注释掉release事件，避免播放器错误
+        # if note.modifier in self.modifier_keys:
+        #     events.append(TimeEvent(start_time + 0.001, 'modifier_release', self.modifier_keys[note.modifier], track_id))
         
         return events
     
@@ -1065,12 +1138,13 @@ class TxtScoreParser:
             note_events = self._generate_note_events(note, start_time, track_id)
             # 只取按键事件，不要修饰符事件（因为和弦统一处理）
             for event in note_events:
-                if event.event_type == 'key_press' and event.key in self.note_to_key.values():
+                if event.event_type == 'key_press' and event.key not in ['+', '-']:  # 排除升降号
                     events.append(event)
         
-        # 修饰符后置
-        if chord.modifier in self.modifier_keys:
-            events.append(TimeEvent(start_time + 0.001, 'modifier_release', self.modifier_keys[chord.modifier], track_id))
+        # 修饰符后置（不生成release事件，在下一个音符时自动处理）
+        # 注释掉release事件，避免播放器错误
+        # if chord.modifier in self.modifier_keys:
+        #     events.append(TimeEvent(start_time + 0.001, 'modifier_release', self.modifier_keys[chord.modifier], track_id))
         
         return events
     
@@ -1098,9 +1172,10 @@ class TxtScoreParser:
             main_events = self._generate_note_events(grace.main_note, grace_time, track_id)
         events.extend(main_events)
         
-        # 修饰符后置
-        if grace.modifier in self.modifier_keys:
-            events.append(TimeEvent(start_time + 0.001, 'modifier_release', self.modifier_keys[grace.modifier], track_id))
+        # 修饰符后置（不生成release事件，在下一个音符时自动处理）
+        # 注释掉release事件，避免播放器错误
+        # if grace.modifier in self.modifier_keys:
+        #     events.append(TimeEvent(start_time + 0.001, 'modifier_release', self.modifier_keys[grace.modifier], track_id))
         
         return events
     
@@ -1158,9 +1233,10 @@ class TxtScoreParser:
             if i < 2:  # 前两个音符需要延迟
                 current_triplet_time += note_durations[i] / 1000.0
         
-        # 修饰符后置
-        if triplet.modifier in self.modifier_keys:
-            events.append(TimeEvent(start_time + 0.001, 'modifier_release', self.modifier_keys[triplet.modifier], track_id))
+        # 修饰符后置（不生成release事件，在下一个音符时自动处理）
+        # 注释掉release事件，避免播放器错误
+        # if triplet.modifier in self.modifier_keys:
+        #     events.append(TimeEvent(start_time + 0.001, 'modifier_release', self.modifier_keys[triplet.modifier], track_id))
         
         return events
     
@@ -1231,8 +1307,9 @@ class TxtScoreParser:
             elif event.event_type == 'modifier_press' and event.key not in seen_keys:
                 playback_data.append(event.key)
                 seen_keys.add(event.key)
-            elif event.event_type == 'modifier_release':
-                playback_data.append(f"release_{event.key}")
+            # 移除modifier_release事件处理，避免播放器错误
+            # elif event.event_type == 'modifier_release':
+            #     playback_data.append(f"release_{event.key}")
             # key_release 通常不需要，音符按下后自动释放
     
     def _generate_keys(self, token: Union[Note, Chord, Grace, Triplet]) -> Tuple[List[str], int]:
@@ -1294,9 +1371,9 @@ class TxtScoreParser:
         if note.pitch in self.note_to_key:
             keys.append(self.note_to_key[note.pitch])
         
-        # 修饰符后置处理（立即松开修饰键）
-        if note.modifier in self.modifier_keys:
-            keys.append(f"release_{self.modifier_keys[note.modifier]}")
+        # 修饰符后置处理（不生成release事件，在下一个音符时自动处理）
+        # if note.modifier in self.modifier_keys:
+        #     keys.append(f"release_{self.modifier_keys[note.modifier]}")
         
         return keys, len([k for k in keys if not k.startswith('release_')])
     
@@ -1316,9 +1393,9 @@ class TxtScoreParser:
                 if key in self.note_to_key.values():
                     keys.append(key)
         
-        # 修饰符后置处理
-        if chord.modifier in self.modifier_keys:
-            keys.append(f"release_{self.modifier_keys[chord.modifier]}")
+        # 修饰符后置处理（不生成release事件，在下一个音符时自动处理）
+        # if chord.modifier in self.modifier_keys:
+        #     keys.append(f"release_{self.modifier_keys[chord.modifier]}")
         
         return keys, len(chord.notes)
     

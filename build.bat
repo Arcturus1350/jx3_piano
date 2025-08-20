@@ -15,8 +15,11 @@ if not exist ".venv\Scripts\python.exe" (
 echo 正在启动打包程序...
 echo.
 
-REM 运行打包脚本
-".venv\Scripts\python.exe" build_exe.py
+echo 正在激活虚拟环境...
+conda activate music
+
+echo 正在运行打包程序...
+python build_exe.py
 
 echo.
 echo 打包完成！
