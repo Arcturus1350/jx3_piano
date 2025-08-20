@@ -6,6 +6,11 @@
 ![GUI](https://img.shields.io/badge/GUI-PyQt5-green.svg)
 ![Game](https://img.shields.io/badge/Game-剑网三-red.svg)
 ![Version](https://img.shields.io/badge/Version-2.0%20增强版-orange.svg)
+![forked_from](https://github.com/66maer/jx3_piano)
+
+**原作者**: 66maer
+**二遍**: Mirror
+未得到原作者许可，不进行开放
 
 ## 🎵 这是什么？
 
@@ -349,7 +354,7 @@ python build_exe.py
 
 ---
 
-**作者**: 66maer  
+**作者**: 66maer  ,Mirror二编
 **版本**: 2.0 增强版  
 **更新日期**: 2025-01-17  
 **新功能**: 倍速播放、八度变调、实时调整
